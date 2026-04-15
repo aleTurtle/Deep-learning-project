@@ -1,0 +1,11 @@
+# Ignora file di sistema e python
+__pycache__/
+.vscode/
+.venv/
+
+# Ignora i dati pesanti e i modelli (NON caricarli su GitHub!)
+data/
+models/*.pth
+models/*.h5
+*.zip
+*.csv
