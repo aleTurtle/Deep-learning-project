@@ -1,37 +1,25 @@
-# --- DATASET & LARGE FILES (I principali colpevoli del sovraccarico) ---
-# Blocca tutti i file HDF5 del dataset (PCam)
-*.h5
-camelyonpatch_level_2_split_*.h5
-
-# Blocca i file del modello (salvataggi pesanti)
-*.keras
-CNN_from_scratch.keras
-models/
-*.pth
-*.weights.h5
-
-# Altri file di dati o compressi
-*.zip
-*.csv
-*.npy
-*.npz
-
-# --- NOTEBOOK & TEMPORARY FILES ---
-# Blocca le cartelle invisibili che crea Jupyter/Colab
-.ipynb_checkpoints/
-*/.ipynb_checkpoints/
-
-# --- PYTHON & ENVIRONMENTS ---
-__pycache__/
-*.py[cod]
-*$py.class
+# --- AMBIENTE VIRTUALE ---
 .venv/
 venv/
 env/
-ENV/
+
+# --- DATASET (I file .h5 di PCam sono enormi!) ---
+data/
+*.h5
+camelyonpatch_level_2_split_*.h5
+
+# --- MODELLI SALVATI ---
+models/
+*.keras
+CNN_from_scratch.keras
+
+# --- NOTEBOOK & TEMPORARY ---
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
 
 # --- IDE & SYSTEM ---
 .vscode/
-.idea/
 .DS_Store
 Thumbs.db
