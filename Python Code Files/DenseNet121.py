@@ -19,7 +19,7 @@ from sklearn.metrics import classification_report, confusion_matrix, ConfusionMa
 if not os.path.exists('/content/drive'):
     drive.mount('/content/drive')
 
-# --- 1. PREPARAZIONE FILE ---
+# --- FILE PREPARATION  ---
 !rm -rf /content/*.h5
 for f in ['train_x','train_y','valid_x','valid_y','test_x','test_y']:
     src = f"/content/drive/MyDrive/PCam/camelyonpatch_level_2_split_{f}.h5"
@@ -30,7 +30,7 @@ print("Files ready on the local disk")
 np.random.seed(42)
 tf.random.set_seed(42)
 
-# --- 2. CARICAMENTO DATI ---
+# --- UPLOAD OF DATA ---
 def load_to_ram(x_path, y_path, num_samples=80000):
     with h5py.File(y_path, 'r') as fy:
         y_all = fy['y'][:num_samples].reshape(-1, 1).astype('float32')
@@ -43,7 +43,7 @@ X_train, Y_train = load_to_ram('/content/camelyonpatch_level_2_split_train_x.h5'
 X_val, Y_val = load_to_ram('/content/camelyonpatch_level_2_split_valid_x.h5',
                                     '/content/camelyonpatch_level_2_split_valid_y.h5', 8000)
 
-# --- 3. DATA AUGMENTATION (Adattata per DenseNet) ---
+# --- DATA AUGMENTATION ---
 def augment(image, label):
     image = tf.image.resize_with_crop_or_pad(image, 96, 96)
     image = tf.cast(image, tf.float32)
@@ -52,7 +52,6 @@ def augment(image, label):
     image = tf.image.random_flip_left_right(image)
     image = tf.image.random_flip_up_down(image)
     image = tf.image.random_brightness(image, 0.15)
-    #MODIFICATO QUI: aggiunto contrasto
     image = tf.image.random_contrast(image, lower=0.75, upper=1.25)
     return image, label
 
@@ -69,12 +68,11 @@ def process_test_img(image):
     image = applications.densenet.preprocess_input(image)
     return image
 
-# --- 4. ARCHITETTURA TRANSFER LEARNING ---
+# --- TRANSFER LEARNING ARCHITECTURE ---
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
 def build_transfer_model():
     base_model = applications.DenseNet121(weights='imagenet', include_top=False, input_shape=(96, 96, 3))
-    #MODIFICATO QUI: bloccato i liveeli tranne gli ultimi 30
     base_model.trainable = True
     for layer in base_model.layers[:-30]:
         layer.trainable = False
@@ -91,7 +89,7 @@ def build_transfer_model():
 
 base_model, model = build_transfer_model()
 
-# --- 5. TRAINING PHASE IN DUE STEP ---
+# --- TRAINING PHASE ---
 BATCH_SIZE = 128
 
 train_ds = tf.data.Dataset.from_tensor_slices((X_train, Y_train))\
@@ -102,15 +100,13 @@ val_ds = tf.data.Dataset.from_tensor_slices((X_val, Y_val))\
     .map(process_val, num_parallel_calls=tf.data.AUTOTUNE)\
     .batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
-# STEP 1: Warm-up
-print("\n--- Fase 1: Warm-up ---")
+print("\n--- Phase 1: Warm-up ---")
 model.compile(optimizer=tf.keras.optimizers.Adam(1e-3),
               loss='binary_crossentropy',
               metrics=['accuracy', tf.keras.metrics.AUC(name='auc')])
 model.fit(train_ds, validation_data=val_ds, epochs=3)
 
-# STEP 2: Fine-Tuning (Sblocchiamo tutto)
-print("\n--- Fase 2: Fine-Tuning ---")
+print("\n--- Phase 2: Fine-Tuning ---")
 base_model.trainable = True
 class_weights = {0: 1.0, 1: 2.5}
 model.compile(optimizer=tf.keras.optimizers.Adam(1e-5),
@@ -122,7 +118,7 @@ history = model.fit(train_ds, validation_data=val_ds, epochs=25, class_weight=cl
                     callbacks=[callbacks.EarlyStopping(monitor='val_auc', mode='max', patience=8, restore_best_weights=True),
                                callbacks.ReduceLROnPlateau(monitor='val_auc', mode='max', factor=0.5, patience=3, verbose=1)])
 
-# PLOT OF FIGURES (Incluso AUC)
+# PLOT OF FIGURES
 plt.figure(figsize=(18,5))
 
 # Loss Curve
@@ -143,18 +139,16 @@ plt.tight_layout()
 plt.show()
 
 
-# --- 6. VALUTAZIONE IN STREAMING (RAM-SAFE) & ROC PLOT ---
-print("\n Final evaluation on test set using streaming pipelines...")
+# ---STREAMING EVALUATION ---
+print("\n Final evaluation on test set ")
 
-# Apriamo i file mantenendoli agganciati al disco per evitare l'overflow della RAM
 fx = h5py.File('/content/camelyonpatch_level_2_split_test_x.h5', 'r')
 fy = h5py.File('/content/camelyonpatch_level_2_split_test_y.h5', 'r')
 
 X_dataset = fx['x']
-Y_test = fy['y'][:].reshape(-1, 1).astype('float32') # Solo i tag binari vengono letti del tutto
+Y_test = fy['y'][:].reshape(-1, 1).astype('float32') 
 num_test_samples = X_dataset.shape[0]
 
-# Generatore per lo streaming sequenziale dei tensori uint8
 def test_generator():
     for i in range(num_test_samples):
         yield X_dataset[i]
@@ -164,25 +158,23 @@ test_ds = tf.data.Dataset.from_generator(
     output_signature=tf.TensorSpec(shape=(96, 96, 3), dtype=tf.uint8)
 )
 
-# Applichiamo il preprocessing formale di DenseNet e il batching
 test_ds = test_ds.map(process_test_img, num_parallel_calls=tf.data.AUTOTUNE).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
-# Predizione probabilistica distribuita
+# Probabilistic prediction 
 y_pred_prob = model.predict(test_ds)
 
-# Soglia clinica ottimizzata per lo screening
 threshold = 0.35
 y_pred = (y_pred_prob > threshold).astype(int)
 
 print(f"\n--- Final report (Threshold: {threshold}) ---")
 print(classification_report(Y_test, y_pred, target_names=["Healthy","Tumor"]))
 
-# Matrice di Confusione
+# Confusion Matrix
 cm = confusion_matrix(Y_test, y_pred)
 disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Healthy","Tumor"])
 disp.plot(cmap='Blues', values_format='d'); plt.show()
 
-# --- GRAFICO DELLA CURVA ROC E CALCOLO AUC FINALE ---
+# ROC/AUC Curve
 fpr, tpr, thresholds_roc = roc_curve(Y_test, y_pred_prob)
 roc_auc = auc(fpr, tpr)
 
@@ -198,7 +190,6 @@ plt.legend(loc="lower right")
 plt.grid(True, linestyle='--', alpha=0.6)
 plt.show()
 
-# Chiudiamo in sicurezza i flussi di input/output h5
 fx.close()
 fy.close()
 print(f"Evaluation complete. Test HDF5 streams closed correctly. Final Test AUC: {roc_auc:.4f}")
