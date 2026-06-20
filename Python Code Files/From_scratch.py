@@ -20,7 +20,7 @@ from tqdm import tqdm
 if not os.path.exists('/content/drive'):
     drive.mount('/content/drive')
 
-# --- 1. PREPARAZIONE FILE ---
+# --- FILE PREPARATION ---
 !rm -rf /content/*.h5
 for f in ['train_x','train_y','valid_x','valid_y','test_x','test_y']:
     src = f"/content/drive/MyDrive/PCam/camelyonpatch_level_2_split_{f}.h5"
@@ -31,7 +31,7 @@ print("Files ready on the local disk")
 np.random.seed(42)
 tf.random.set_seed(42)
 
-# --- 2. CARICAMENTO DATI (Identico alla ResNet) ---
+# --- UPLOAD DATA ---
 def load_to_ram(x_path, y_path, num_samples=80000):
     with h5py.File(y_path, 'r') as fy:
         y_all = fy['y'][:num_samples].reshape(-1, 1).astype('float32')
@@ -44,7 +44,7 @@ X_train, Y_train = load_to_ram('/content/camelyonpatch_level_2_split_train_x.h5'
 X_val, Y_val = load_to_ram('/content/camelyonpatch_level_2_split_valid_x.h5',
                                     '/content/camelyonpatch_level_2_split_valid_y.h5', 8000)
 
-# --- 3. DATA AUGMENTATION (Identica alla ResNet: 80x80) ---
+# --- DATA AUGMENTATION ---
 def augment(image, label):
     image = tf.image.resize_with_crop_or_pad(image, 80, 80)
     image = tf.cast(image, tf.float32) / 255.0
@@ -59,36 +59,36 @@ def process_val(image, label):
     image = tf.cast(image, tf.float32) / 255.0
     return image, label
 
-# --- 4. ARCHITETTURA CNN FROM SCRATCH (Parametri allineati alla ResNet) ---
+# --- CNN FROM SCRATCH ARCHITECTURE ---
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
-l2_val = 5e-4 # Portato a 5e-4 come nella ResNet
+l2_val = 5e-4
 
 def build_cnn_from_scratch():
     inputs = layers.Input(shape=(80, 80, 3))
 
-    # Primo Livello
+    # First Layer
     x = layers.Conv2D(32, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_val))(inputs)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPooling2D()(x)
     x = layers.SpatialDropout2D(0.2)(x)
 
-    # Secondo Livello (Filtri allineati: 64)
+    # Second Layer
     x = layers.Conv2D(64, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_val))(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPooling2D()(x)
     x = layers.SpatialDropout2D(0.2)(x)
 
-    # Terzo Livello (Filtri allineati: 128)
+    # Third Layer
     x = layers.Conv2D(128, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_val))(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPooling2D()(x)
     x = layers.SpatialDropout2D(0.2)(x)
 
-    # Quarto Livello (Filtri allineati: 256)
+    # Fourth Layer
     x = layers.Conv2D(256, 3, padding='same', activation='relu', kernel_regularizer=regularizers.l2(l2_val))(x)
     x = layers.BatchNormalization()(x)
 
-    # Classifier Head (Identica alla ResNet)
+    # Classifier Head
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dense(128, activation='relu', kernel_regularizer=regularizers.l2(l2_val))(x)
     outputs = layers.Dense(1, activation='sigmoid', dtype='float32')(x)
@@ -101,7 +101,7 @@ model.compile(optimizer=tf.keras.optimizers.Adam(1e-4),
               metrics=['accuracy', tf.keras.metrics.AUC(name='auc')],
               jit_compile=True)
 
-# --- 5. TRAINING PHASE (Identica alla ResNet) ---
+# --- TRAINING PHASE ---
 BATCH_SIZE = 256
 
 train_ds = tf.data.Dataset.from_tensor_slices((X_train, Y_train))\
@@ -112,19 +112,18 @@ val_ds = tf.data.Dataset.from_tensor_slices((X_val, Y_val))\
     .map(process_val, num_parallel_calls=tf.data.AUTOTUNE)\
     .batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
-print(f"\n Start Training CNN From Scratch (Allineata)...")
+print(f"\n Start Training CNN From Scratch")
 history = model.fit(train_ds, validation_data=val_ds, epochs=30,
                     callbacks=[callbacks.EarlyStopping(patience=10, restore_best_weights=True),
                                callbacks.ReduceLROnPlateau(factor=0.2, patience=3, verbose=1)])
 
-# Salvataggio
+# Model Save
 model.save('/content/drive/MyDrive/CNN_from_scratch_allineata.keras')
 
-# --- 6. GRAFICI ---
 # PLOT OF FIGURES
 plt.figure(figsize=(14,6))
 
-# Loss
+# Loss 
 plt.subplot(1,2,1)
 plt.plot(history.history['loss'], label='Train Loss')
 plt.plot(history.history['val_loss'], label='Val Loss')
@@ -141,7 +140,7 @@ plt.ylim(0, 1.0); plt.legend()
 plt.tight_layout()
 plt.show()
 
-# --- 7. VALUTAZIONE FINALE ---
+# --- FINAL EVALUATION ---
 print("\n Final evaluation on test set...")
 with h5py.File('/content/camelyonpatch_level_2_split_test_x.h5','r') as fx, \
      h5py.File('/content/camelyonpatch_level_2_split_test_y.h5','r') as fy:
