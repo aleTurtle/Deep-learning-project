@@ -20,7 +20,7 @@ from tqdm import tqdm
 if not os.path.exists('/content/drive'):
     drive.mount('/content/drive')
 
-# --- 1. PREPARAZIONE FILE ---
+# --- FILE PREPARATION ---
 !rm -rf /content/*.h5
 for f in ['train_x','train_y','valid_x','valid_y','test_x','test_y']:
     src = f"/content/drive/MyDrive/PCam/camelyonpatch_level_2_split_{f}.h5"
@@ -31,12 +31,12 @@ print("Files ready on the local disk")
 np.random.seed(42)
 tf.random.set_seed(42)
 
-# --- 2. CARICAMENTO DATI ---
+# --- LOADING DATA ---
 def load_to_ram(x_path, y_path, num_samples=80000):
     with h5py.File(y_path, 'r') as fy:
         y_all = fy['y'][:num_samples].reshape(-1, 1).astype('float32')
     with h5py.File(x_path, 'r') as fx:
-        x_all = fx['x'][:num_samples] # Caricamento diretto per velocità
+        x_all = fx['x'][:num_samples]
     return x_all, y_all
 
 X_train, Y_train = load_to_ram('/content/camelyonpatch_level_2_split_train_x.h5',
@@ -44,7 +44,7 @@ X_train, Y_train = load_to_ram('/content/camelyonpatch_level_2_split_train_x.h5'
 X_val, Y_val = load_to_ram('/content/camelyonpatch_level_2_split_valid_x.h5',
                                     '/content/camelyonpatch_level_2_split_valid_y.h5', 8000)
 
-# --- 3. COMPONENTI G-CNN EQUIVARIANTE ---
+# --- G-CNN ARCHITECTURE ---
 class P4LiftingConv2D(layers.Layer):
     def __init__(self, filters, kernel_size, **kwargs):
         super().__init__(**kwargs)
@@ -67,7 +67,7 @@ class GroupPool(layers.Layer):
         x = tf.reshape(inputs, [shape[0], shape[1], shape[2], 4, shape[3] // 4])
         return tf.reduce_max(x, axis=3)
 
-# --- 4. DATA AUGMENTATION SU CPU (VELOCIZZAZIONE CHIAVE) ---
+# --- DATA AUGMENTATION ---
 def augment(image, label):
     image = tf.image.resize_with_crop_or_pad(image, 80, 80)
     image = tf.cast(image, tf.float32) / 255.0
@@ -82,7 +82,7 @@ def process_val(image, label):
     image = tf.cast(image, tf.float32) / 255.0
     return image, label
 
-# --- 5. ARCHITETTURA MODELLO OTTIMIZZATA ---
+# --- ARCHITECTURE OPTIMIZATION ---
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 l2_val = 5e-4
 
@@ -97,13 +97,12 @@ def g_residual_block(x, filters):
     return layers.Activation('relu')(layers.Add()([x, shortcut]))
 
 def build_fast_gcnn():
-    inputs = layers.Input(shape=(80, 80, 3)) # Input già croppato dalla CPU
+    inputs = layers.Input(shape=(80, 80, 3))
 
     x = P4LiftingConv2D(filters=32, kernel_size=3)(inputs)
     x = layers.BatchNormalization()(x)
     x = layers.Activation('relu')(x)
 
-    # Filtri scalati per velocità (ma quadruplicati internamente dalla G-CNN)
     for f in [64, 128, 256]:
         x = g_residual_block(x, f)
         x = layers.MaxPooling2D()(x)
@@ -119,8 +118,8 @@ model = build_fast_gcnn()
 model.compile(optimizer=tf.keras.optimizers.Adam(1e-4), loss='binary_crossentropy',
               metrics=['accuracy', tf.keras.metrics.AUC(name='auc')], jit_compile=True)
 
-# --- 6. TRAINING ULTRA-VELOCE ---
-BATCH_SIZE = 256 # Sfruttiamo la Mixed Precision al massimo
+# --- TRAINING---
+BATCH_SIZE = 256
 
 train_ds = tf.data.Dataset.from_tensor_slices((X_train, Y_train))\
     .shuffle(10000).map(augment, num_parallel_calls=tf.data.AUTOTUNE)\
@@ -135,7 +134,6 @@ history = model.fit(train_ds, validation_data=val_ds, epochs=30,
                     callbacks=[callbacks.EarlyStopping(patience=10, restore_best_weights=True),
                                callbacks.ReduceLROnPlateau(factor=0.2, patience=3, verbose=1)])
 
-
 # Saving the model
 model.save('/content/drive/MyDrive/gcnn_model.keras')
 print("Model saved successfully to Google Drive")
@@ -146,19 +144,16 @@ plt.subplot(1,2,1); plt.plot(history.history['loss'], label='Train'); plt.plot(h
 plt.subplot(1,2,2); plt.plot(history.history['accuracy'], label='Train'); plt.plot(history.history['val_accuracy'], label='Val'); plt.title("Accuracy"); plt.ylim(0, 1.0); plt.legend()
 plt.show()
 
-
-
-# --- 7. VALUTAZIONE ---
+# --- FINAL EVALUATION ---
 print("\n Final evaluation on test set...")
 with h5py.File('/content/camelyonpatch_level_2_split_test_x.h5','r') as fx, \
      h5py.File('/content/camelyonpatch_level_2_split_test_y.h5','r') as fy:
     X_test, Y_test = fx['x'][:], fy['y'][:].reshape(-1,1).astype('float32')
 
-# Creiamo un dataset anche per il test per velocità
 test_ds = tf.data.Dataset.from_tensor_slices((X_test, Y_test))\
     .map(process_val).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
-y_pred_prob = model.predict(test_ds) # Get probabilities for ROC curve
+y_pred_prob = model.predict(test_ds)
 y_pred = (y_pred_prob > 0.35).astype(int)
 print(classification_report(Y_test, y_pred, target_names=["Healthy","Tumor"]))
 
