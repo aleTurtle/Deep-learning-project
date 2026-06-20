@@ -30,7 +30,7 @@ print("Files ready on the local disk")
 np.random.seed(42)
 tf.random.set_seed(42)
 
-# --- UPLOAD OF DATA ---
+# --- LOADING OF DATA ---
 def load_to_ram(x_path, y_path, num_samples=80000):
     with h5py.File(y_path, 'r') as fy:
         y_all = fy['y'][:num_samples].reshape(-1, 1).astype('float32')
@@ -61,7 +61,6 @@ def process_val(image, label):
     image = applications.densenet.preprocess_input(image)
     return image, label
 
-# Funzione per mappare solo le immagini nel generatore di test dello streaming
 def process_test_img(image):
     image = tf.image.resize_with_crop_or_pad(image, 96, 96)
     image = tf.cast(image, tf.float32)
@@ -139,7 +138,7 @@ plt.tight_layout()
 plt.show()
 
 
-# ---STREAMING EVALUATION ---
+# --- FINAL EVALUATION ---
 print("\n Final evaluation on test set ")
 
 fx = h5py.File('/content/camelyonpatch_level_2_split_test_x.h5', 'r')
