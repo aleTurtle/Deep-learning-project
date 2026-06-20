@@ -20,7 +20,7 @@ from tqdm import tqdm
 if not os.path.exists('/content/drive'):
     drive.mount('/content/drive')
 
-# --- 1. PREPARAZIONE FILE ---
+# --- FILE PREPARATION ---
 !rm -rf /content/*.h5
 for f in ['train_x','train_y','valid_x','valid_y','test_x','test_y']:
     src = f"/content/drive/MyDrive/PCam/camelyonpatch_level_2_split_{f}.h5"
@@ -31,7 +31,7 @@ print("Files ready on the local disk")
 np.random.seed(42)
 tf.random.set_seed(42)
 
-# --- 2. CARICAMENTO DATI ---
+# --- LOADING DATA ---
 def load_to_ram(x_path, y_path, num_samples=80000):
     with h5py.File(y_path, 'r') as fy:
         y_all = fy['y'][:num_samples].reshape(-1, 1).astype('float32')
@@ -44,7 +44,7 @@ X_train, Y_train = load_to_ram('/content/camelyonpatch_level_2_split_train_x.h5'
 X_val, Y_val = load_to_ram('/content/camelyonpatch_level_2_split_valid_x.h5',
                                     '/content/camelyonpatch_level_2_split_valid_y.h5', 8000)
 
-# --- 3. DATA AUGMENTATION SU CPU (Mantenuta identica alla G-CNN) ---
+# --- DATA AUGMENTATION ---
 def augment(image, label):
     image = tf.image.resize_with_crop_or_pad(image, 80, 80)
     image = tf.cast(image, tf.float32) / 255.0
@@ -59,7 +59,7 @@ def process_val(image, label):
     image = tf.cast(image, tf.float32) / 255.0
     return image, label
 
-# --- 4. ARCHITETTURA RESNET STANDARD ---
+# --- RESNET ARCHITECTURE ---
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 l2_val = 5e-4
 
@@ -76,17 +76,14 @@ def residual_block(x, filters):
 def build_resnet_standard():
     inputs = layers.Input(shape=(80, 80, 3))
 
-    # Sostituito Lifting Layer con Conv2D standard
     x = layers.Conv2D(32, 3, padding='same', activation='relu')(inputs)
     x = layers.BatchNormalization()(x)
 
-    # Blocchi Residui (Stessa struttura della G-CNN)
     for f in [64, 128, 256]:
         x = residual_block(x, f)
         x = layers.MaxPooling2D()(x)
         x = layers.SpatialDropout2D(0.2)(x)
 
-    # RIMOSSO GroupPool() - Qui finisce la logica ResNet standard
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dense(128, activation='relu')(x)
     outputs = layers.Dense(1, activation='sigmoid', dtype='float32')(x)
@@ -96,7 +93,7 @@ model = build_resnet_standard()
 model.compile(optimizer=tf.keras.optimizers.Adam(1e-4), loss='binary_crossentropy',
               metrics=['accuracy', tf.keras.metrics.AUC(name='auc')], jit_compile=True)
 
-# --- 5. TRAINING PHASE ---
+# --- TRAINING PHASE ---
 BATCH_SIZE = 256
 
 train_ds = tf.data.Dataset.from_tensor_slices((X_train, Y_train))\
@@ -115,7 +112,6 @@ history = model.fit(train_ds, validation_data=val_ds, epochs=30,
 # Saving the model
 model.save('/content/drive/MyDrive/resnet_standard_model.keras')
 
-# --- 6. GRAFICI ---
 # PLOT OF FIGURES
 plt.figure(figsize=(14,6))
 
@@ -136,7 +132,7 @@ plt.ylim(0, 1.0); plt.legend()
 plt.tight_layout()
 plt.show()
 
-# --- 7. VALUTAZIONE ---
+# --- FINAL EVALUATION ---
 print("\n Final evaluation on test set...")
 with h5py.File('/content/camelyonpatch_level_2_split_test_x.h5','r') as fx, \
      h5py.File('/content/camelyonpatch_level_2_split_test_y.h5','r') as fy:
