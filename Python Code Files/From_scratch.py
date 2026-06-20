@@ -31,7 +31,7 @@ print("Files ready on the local disk")
 np.random.seed(42)
 tf.random.set_seed(42)
 
-# --- UPLOAD DATA ---
+# --- LOADING DATA ---
 def load_to_ram(x_path, y_path, num_samples=80000):
     with h5py.File(y_path, 'r') as fy:
         y_all = fy['y'][:num_samples].reshape(-1, 1).astype('float32')
