@@ -9,7 +9,7 @@ This repository hosts the final project developed for the **Deep Learning** cour
 
 The entire workflow follows an **"incremental complexity"** paradigm: evaluating custom baseline structures, scaling up to deep residual domains (ResNet-50), exploring group-equivariant solutions (G-CNN), and ultimately leveraging out-of-domain pre-trained architectures (DenseNet121). Given the medical nature of the problem, our design explicitly **prioritizes Recall (Sensitivity)** to minimize critical False Negatives during diagnostic screening.
 
-📌 **For a comprehensive theoretical, mathematical, and architectural breakdown, please refer to the official PDF report included in this repository:** (DLProject_PCam_Report.pdf).
+📌 **For a comprehensive theoretical, mathematical, and architectural breakdown, please refer to the official PDF report included in this repository:** [Final Project Report](DLProject_PCam_Report.pdf).
 
 ---
 
